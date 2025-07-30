@@ -3,6 +3,7 @@
 #include <string_view>
 #include <stdexcept>
 #include <filesystem>
+#include <expected>
 
 enum SymTagEnum {
     SymTagNull,
@@ -55,16 +56,14 @@ enum SymTagEnum {
 #pragma comment(lib, "dbghelp.lib")
 
 
-struct fn_info_t {
-    ULONG64 fn_start_addr_raw;
-    ULONG fn_size;
-};
+namespace pdb_parser {
+    struct fn_info_t {
+        ULONG64 fn_start_addr_rel; //relative to where image is loaded
+        ULONG fn_size;
+    };
+}
 
 class PdbParser {
-private:
-    std::vector<fn_info_t> fn_info_vec = {}; //will contain a list of all fns we will obfuscate
 public:
-    PdbParser(const std::filesystem::path& executable_path);
-    std::vector<fn_info_t> get_fn_info();
-    //~PdbParser();
+    std::expected<std::vector<pdb_parser::fn_info_t>, std::string> parse_pdb(const std::filesystem::path executable_path);
 };
