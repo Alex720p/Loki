@@ -32,12 +32,12 @@ std::expected<void, std::string> Obfuscator::init_fns(const std::filesystem::pat
 	if (!parser_result)
 		return std::unexpected(parser_result.error());
 
-	auto fns_info_vec = *parser_result;
-	for (const auto& fn : fns_info_vec) {
+	auto user_ctx = *parser_result;
+	for (const auto& fn : user_ctx.fn_info_vec) {
 		if (fn.fn_start_addr_rel < text_section->virtual_address() || fn.fn_start_addr_rel + fn.fn_size > text_section->virtual_address() + text_section->virtual_size())
 			return std::unexpected("a function in the pdb file lies outside the bound of .text");
 
-		obfuscator::func_t obfuscator_fn = { .fn_start_addr_rel = fn.fn_start_addr_rel, .fn_size = fn.fn_size };
+		types::obfuscator::func_t obfuscator_fn = { .fn_start_addr_rel = fn.fn_start_addr_rel, .fn_size = fn.fn_size };
 		const auto fn_code = text.subspan(fn.fn_start_addr_rel - text_section->virtual_address(), fn.fn_size);
 
 		//decoding and checking that there is no jump table, in which case we skip the whole fn for now
@@ -67,6 +67,13 @@ std::expected<void, std::string> Obfuscator::init_fns(const std::filesystem::pat
 
 		this->funcs.push_back(obfuscator_fn);
 	}
+
+	//sorting functions by ascending orders
+	std::sort(this->funcs.begin(), this->funcs.end());
+
+	for (const auto& potential_jump_stub : user_ctx.potential_jump_stubs) {
+
+	}
 }
 
 void Obfuscator::init(const std::filesystem::path& executable_path) {
@@ -75,5 +82,19 @@ void Obfuscator::init(const std::filesystem::path& executable_path) {
 	if (!fn_init_res)
 		throw std::runtime_error(std::format("failed to init functions in obfuscator, error: {}", fn_init_res.error()));
 
+	this->is_funcs_valid = true;
+}
 
+
+void Obfuscator::run_passes() {
+	auto text_section = this->pe->get_section(".text");
+	auto new_vec = passes::anti_disassembly::e8ff_decoy(text_section->content(), text_section->virtual_address(), this->funcs); //should be run later when adding other passes
+	text_section->content(new_vec);
+
+}
+
+void Obfuscator::build_obfuscated_executable(const std::filesystem::path& out) {
+	LIEF::PE::Builder builder(*this->pe);
+	builder.build();
+	builder.write(out.string());
 }

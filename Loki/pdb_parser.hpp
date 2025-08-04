@@ -1,3 +1,4 @@
+#pragma once
 
 #include <Windows.h>
 #include <string_view>
@@ -61,9 +62,16 @@ namespace pdb_parser {
         ULONG64 fn_start_addr_rel; //relative to where image is loaded
         ULONG fn_size;
     };
+
+    struct user_ctx {
+        std::vector<pdb_parser::fn_info_t> fn_info_vec = {};
+        std::vector<uint64_t> potential_jump_stubs = {};
+        uint64_t dot_text_base;
+        uint64_t dot_text_size;
+    };
 }
 
 class PdbParser {
 public:
-    std::expected<std::vector<pdb_parser::fn_info_t>, std::string> parse_pdb(const std::filesystem::path executable_path);
+    std::expected<pdb_parser::user_ctx, std::string> parse_pdb(const std::filesystem::path executable_path);
 };

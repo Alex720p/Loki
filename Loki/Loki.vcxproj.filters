@@ -13,6 +13,9 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="Source Files\passes">
+      <UniqueIdentifier>{5964c8cc-e18e-412e-9031-69cc1f875bd1}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pdb_parser.cpp">
@@ -24,12 +27,24 @@
     <ClCompile Include="obfuscator.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="passes\anti_disassembly.cpp">
+      <Filter>Source Files\passes</Filter>
+    </ClCompile>
+    <ClCompile Include="misc.cpp">
+      <Filter>Source Files\passes</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="obfuscator.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="pdb_parser.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="passes.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="types.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
