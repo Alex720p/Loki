@@ -28,7 +28,7 @@ std::expected<void, std::string> Obfuscator::init_fns(const std::filesystem::pat
 	const auto text = text_section->content();
 
 	PdbParser parser;
-	auto parser_result = parser.parse_pdb(executable_path);
+	auto parser_result = parser.parse_pdb(executable_path, text_section->virtual_address(), text_section->virtual_size());
 	if (!parser_result)
 		return std::unexpected(parser_result.error());
 
@@ -53,7 +53,7 @@ std::expected<void, std::string> Obfuscator::init_fns(const std::filesystem::pat
 				/* instruction:     */ &instruction
 			))) {
 				if (obfuscator::utils::does_fn_contain_jump_table(instruction, pe->imagebase())) {
-					obfuscator_fn.has_jump_table = true;
+					obfuscator_fn.has_jump_table = true; //TODO: decode until ret
 					obfuscator_fn.decoded_insts.clear(); //we won't need the list anymore for now. note: in future imp, will try to detect the jump table and its location and do some obfuscation around/ on it
 					break;
 				}
@@ -61,7 +61,7 @@ std::expected<void, std::string> Obfuscator::init_fns(const std::filesystem::pat
 				obfuscator_fn.decoded_insts.push_back(instruction);
 				offset += instruction.info.length;
 			} else {
-				return std::unexpected(std::format("Zydis failed to decode an instruction at {} rva", obfuscator_fn.fn_start_addr_rel + offset));
+				return std::unexpected(std::format("Zydis failed to decode an instruction at {:#x} rva", obfuscator_fn.fn_start_addr_rel + offset));
 			}
 		}
 
@@ -71,8 +71,23 @@ std::expected<void, std::string> Obfuscator::init_fns(const std::filesystem::pat
 	//sorting functions by ascending orders
 	std::sort(this->funcs.begin(), this->funcs.end());
 
-	for (const auto& potential_jump_stub : user_ctx.potential_jump_stubs) {
+	ZydisDisassembledInstruction instruction;
+	for (const auto& potential_jump_stub_addr : user_ctx.potential_jump_stubs) {
+		uint64_t text_rel_jump_addr = potential_jump_stub_addr - text_section->virtual_address();
+		if (!ZYAN_SUCCESS(ZYAN_SUCCESS(ZydisDisassembleIntel(
+			/* machine_mode:    */ ZYDIS_MACHINE_MODE_LONG_64,
+			/* runtime_address: */ pe->imagebase() + potential_jump_stub_addr,
+			/* buffer:          */ text.data() + text_rel_jump_addr,
+			/* length:          */ text_section->virtual_size() - text_rel_jump_addr,
+			/* instruction:     */ &instruction))))
+			continue;
 
+		if (!helpers::is_inst_control_flow_op(instruction))
+			continue;
+
+		auto operand = instruction.operands[0];
+		if (instruction.info.mnemonic == ZYDIS_MNEMONIC_JMP && operand.mem.base == ZYDIS_REGISTER_RIP) //there's a risk that this might be vs compiler specific, might need to implement something more flexible
+			this->outside_fns_rip_jump_stubs.push_back(instruction); //save the whole instruction so that we can rebuild them later with Zydis's encoder
 	}
 }
 
@@ -89,8 +104,48 @@ void Obfuscator::init(const std::filesystem::path& executable_path) {
 void Obfuscator::run_passes() {
 	auto text_section = this->pe->get_section(".text");
 	auto new_vec = passes::anti_disassembly::e8ff_decoy(text_section->content(), text_section->virtual_address(), this->funcs); //should be run later when adding other passes
-	text_section->content(new_vec);
+	text_section->content(new_vec); //TODO: UPDATE RUNTIME_ADDRESS IN INSTRUCTIONS
 
+}
+
+//TODO: can easily speed up this process by more preprocessing
+//TODO: put assumptions
+std::expected<void, std::string> Obfuscator::fix_rip_relative_instructions(uint64_t added_bytes_loc, uint64_t added_bytes) {
+	for (auto& fn : this->funcs) {
+		for (auto& inst : fn.decoded_insts) {
+			bool is_inst_control_flow = helpers::is_inst_control_flow_op(inst);
+			bool has_rip_explicit_operand = helpers::has_rip_explicit_operand(inst);
+			if (!is_inst_control_flow && !has_rip_explicit_operand) //has_rip_explicit check would suffice
+				continue;
+
+			uint64_t abs_addr;
+			if (!ZYAN_SUCCESS(ZydisCalcAbsoluteAddress(&inst.info, inst.operands, pe->imagebase(), &abs_addr)))
+				return std::unexpected(std::format("failed to calculate absolute address of jump at instruction {:#x}", inst.runtime_address));
+
+			uint64_t image_rel_addr = abs_addr - pe->imagebase();
+			if (image_rel_addr < added_bytes_loc)
+				continue; //no need for fixing
+
+			if (is_inst_control_flow) {
+				auto imm_operand = &inst.operands[0];
+				if (imm_operand->type != ZYDIS_OPERAND_TYPE_IMMEDIATE)
+					return std::unexpected(std::format("unhandled behavior encountered: a control flow op without an ZYDIS_OPERAND_TYPE_IMMEDIATE operand type at {:#x}", inst.runtime_address));
+
+				if (imm_operand->imm.is_signed)
+					imm_operand->imm.value.s += added_bytes;
+				else
+					imm_operand->imm.value.u += added_bytes;
+
+				ZydisEncoderRequest enc_req;
+				if (!ZYAN_SUCCESS(ZydisEncoderDecodedInstructionToEncoderRequest(&inst.info, inst.operands, inst.info.operand_count_visible, &enc_req)))
+					return std::unexpected(std::format("failed to reencode jump instruction at {:#x}", inst.runtime_address));
+			}
+
+
+		}
+	}
+
+	//TODO: also traverse stubs
 }
 
 void Obfuscator::build_obfuscated_executable(const std::filesystem::path& out) {

@@ -132,6 +132,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="helpers.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="misc.cpp" />
     <ClCompile Include="obfuscator.cpp" />
@@ -139,6 +140,7 @@
     <ClCompile Include="pdb_parser.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="helpers.hpp" />
     <ClInclude Include="obfuscator.hpp" />
     <ClInclude Include="passes.hpp" />
     <ClInclude Include="pdb_parser.hpp" />

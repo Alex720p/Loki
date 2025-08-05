@@ -73,5 +73,5 @@ namespace pdb_parser {
 
 class PdbParser {
 public:
-    std::expected<pdb_parser::user_ctx, std::string> parse_pdb(const std::filesystem::path executable_path);
+    std::expected<pdb_parser::user_ctx, std::string> parse_pdb(const std::filesystem::path executable_path, const uint64_t text_base, const uint64_t text_size);
 };

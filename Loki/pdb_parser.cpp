@@ -27,8 +27,8 @@ static BOOL CALLBACK enum_symbols_callback(PSYMBOL_INFO psym_info, ULONG symbol_
 }
 
 
-std::expected<pdb_parser::user_ctx, std::string> PdbParser::parse_pdb(const std::filesystem::path executable_path) {
-	pdb_parser::user_ctx ctx = {};
+std::expected<pdb_parser::user_ctx, std::string> PdbParser::parse_pdb(const std::filesystem::path executable_path, const uint64_t text_base, const uint64_t text_size) {
+	pdb_parser::user_ctx ctx = {.dot_text_base = text_base, .dot_text_size = text_size};
 	if (!SymInitialize(GetCurrentProcess(), executable_path.parent_path().string().c_str(), false))
 		return std::unexpected("failed to initialize the symbol handler.");
 

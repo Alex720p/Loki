@@ -11,7 +11,7 @@ namespace passes::anti_disassembly {
 			uint64_t previous_added_decoys = added_decoys;
 			uint64_t fn_offset = 0;
 			uint64_t fn_start_addr_text_rel = fn.fn_start_addr_rel - text_base;
-			for (const auto& instruction : fn.decoded_insts) { //TODO: NEED TO FIND ALL BASIC BLOCKS AND FIX THE JUMPS
+			for (const auto& instruction : fn.decoded_insts) {
 				if (text[fn_start_addr_text_rel + fn_offset] == 0xff) {
 					auto insertion_iterator = std::next(new_text.begin(), fn_start_addr_text_rel);
 					new_text.insert(std::next(insertion_iterator, fn_offset + added_decoys), 0xe8);
