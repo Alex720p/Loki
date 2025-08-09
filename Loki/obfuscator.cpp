@@ -95,7 +95,7 @@ void Obfuscator::init(const std::filesystem::path& executable_path) {
 	this->pe = LIEF::PE::Parser::parse(executable_path.string());
 	auto fn_init_res = this->init_fns(executable_path);
 	if (!fn_init_res)
-		throw std::runtime_error(std::format("failed to init functions in obfuscator, error: {}", fn_init_res.error()));
+		throw std::runtime_error(std::format("Failed to init functions in obfuscator, error: {}", fn_init_res.error()));
 
 	this->is_funcs_valid = true;
 }
@@ -103,50 +103,16 @@ void Obfuscator::init(const std::filesystem::path& executable_path) {
 
 void Obfuscator::run_passes() {
 	auto text_section = this->pe->get_section(".text");
-	auto new_vec = passes::anti_disassembly::e8ff_decoy(text_section->content(), text_section->virtual_address(), this->funcs); //should be run later when adding other passes
-	text_section->content(new_vec); //TODO: UPDATE RUNTIME_ADDRESS IN INSTRUCTIONS
+	auto pass_ret = passes::anti_disassembly::e8ff_decoy(text_section->content(), this->pe->imagebase(), text_section->virtual_address(), this->funcs); //should be run later when adding other passes
+	if (!pass_ret)
+		throw std::runtime_error(std::format("Failed to run pass. {}", pass_ret.error()));
+
+	text_section->content(*pass_ret); //TODO: UPDATE RUNTIME_ADDRESS IN INSTRUCTIONS
 
 }
 
 //TODO: can easily speed up this process by more preprocessing
 //TODO: put assumptions
-std::expected<void, std::string> Obfuscator::fix_rip_relative_instructions(uint64_t added_bytes_loc, uint64_t added_bytes) {
-	for (auto& fn : this->funcs) {
-		for (auto& inst : fn.decoded_insts) {
-			bool is_inst_control_flow = helpers::is_inst_control_flow_op(inst);
-			bool has_rip_explicit_operand = helpers::has_rip_explicit_operand(inst);
-			if (!is_inst_control_flow && !has_rip_explicit_operand) //has_rip_explicit check would suffice
-				continue;
-
-			uint64_t abs_addr;
-			if (!ZYAN_SUCCESS(ZydisCalcAbsoluteAddress(&inst.info, inst.operands, pe->imagebase(), &abs_addr)))
-				return std::unexpected(std::format("failed to calculate absolute address of jump at instruction {:#x}", inst.runtime_address));
-
-			uint64_t image_rel_addr = abs_addr - pe->imagebase();
-			if (image_rel_addr < added_bytes_loc)
-				continue; //no need for fixing
-
-			if (is_inst_control_flow) {
-				auto imm_operand = &inst.operands[0];
-				if (imm_operand->type != ZYDIS_OPERAND_TYPE_IMMEDIATE)
-					return std::unexpected(std::format("unhandled behavior encountered: a control flow op without an ZYDIS_OPERAND_TYPE_IMMEDIATE operand type at {:#x}", inst.runtime_address));
-
-				if (imm_operand->imm.is_signed)
-					imm_operand->imm.value.s += added_bytes;
-				else
-					imm_operand->imm.value.u += added_bytes;
-
-				ZydisEncoderRequest enc_req;
-				if (!ZYAN_SUCCESS(ZydisEncoderDecodedInstructionToEncoderRequest(&inst.info, inst.operands, inst.info.operand_count_visible, &enc_req)))
-					return std::unexpected(std::format("failed to reencode jump instruction at {:#x}", inst.runtime_address));
-			}
-
-
-		}
-	}
-
-	//TODO: also traverse stubs
-}
 
 void Obfuscator::build_obfuscated_executable(const std::filesystem::path& out) {
 	LIEF::PE::Builder builder(*this->pe);

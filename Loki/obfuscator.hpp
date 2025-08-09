@@ -19,6 +19,6 @@ private:
 public:
 	void init(const std::filesystem::path& executable_path);
 	void run_passes();
-	std::expected<void, std::string> fix_rip_relative_instructions(uint64_t added_bytes_loc, uint64_t added_bytes); //added bytes loc should be relative to image base
+	std::expected<void, std::string> fix_rip_relative_instructions(std::vector<uint8_t>& text, const uint64_t image_base, const uint64_t text_base, uint64_t added_bytes_loc, uint64_t added_bytes); //added bytes loc should be relative to image base
 	void build_obfuscated_executable(const std::filesystem::path& out);
 };

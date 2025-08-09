@@ -2,16 +2,18 @@
 #include <iostream>
 
 int main() {
-	//dbParser parser(");
 	const std::filesystem::path path = R"(C:\Users\alexa\source\repos\jump_table\x64\Release\jump_table.exe)";
-	/*Obfuscator obfuscator;
+	Obfuscator obfuscator;
 	obfuscator.init(path);
 	obfuscator.run_passes();
-	obfuscator.build_obfuscated_executable(R"(C:\Users\alexa\source\repos\jump_table\x64\Release\obf.exe)");*/
+	obfuscator.build_obfuscated_executable(R"(C:\Users\alexa\source\repos\jump_table\x64\Release\obf.exe)");
 
+#if 0
 	//unsigned char inst[] = { 0xE9, 0x72, 0xFE, 0xFF, 0xFF };
-	unsigned char inst[] = { 0xE8, 0xC7, 0x03, 0x00, 0x00 };
+	//unsigned char inst[] = { 0xE8, 0xC7, 0x03, 0x00, 0x00 };
+	//unsigned char inst[] = { 0x48, 0x8D, 0x15, 0xBE, 0xEF, 0xFF, 0xFF };
 	//unsigned char inst[] = { 0x48, 0x83, 0xEC, 0x20 };
+	unsigned char inst[] = { 0xFF, 0x15, 0x53, 0x1F, 0x00, 0x00 };
 	auto pe = LIEF::PE::Parser::parse(path.string());
 	ZydisDisassembledInstruction instruction;
 	auto text_section = pe->get_section(".text");
@@ -22,6 +24,6 @@ int main() {
 		/* buffer:          */ inst,
 		/* length:          */ sizeof(inst),
 		/* instruction:     */ &instruction);
-
+#endif
 	return 0;
 }
