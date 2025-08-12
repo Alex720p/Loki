@@ -18,7 +18,7 @@ namespace helpers {
         }
     }
 
-	bool control_flow_needs_fix_up(const ZydisDisassembledInstruction& inst) {
+	bool potential_control_flow_fix_up(const ZydisDisassembledInstruction& inst) {
 		if (inst.runtime_address == 0x1400011fb)
 			auto tt = 0;
 
@@ -46,36 +46,65 @@ namespace helpers {
         return false;
     }
 
+	void update_fns(std::vector<types::obfuscator::func_t>& funcs, uint64_t img_rel_bytes_added_loc, uint64_t bytes_added, const uint64_t image_base) {
+		for (auto& fn : funcs) {
+			if (img_rel_bytes_added_loc > fn.fn_start_addr_rel)
+				continue; //no need to update fn or instructions
+
+			if (img_rel_bytes_added_loc >= fn.fn_start_addr_rel && img_rel_bytes_added_loc < fn.fn_start_addr_rel + fn.fn_size)
+				fn.fn_size += bytes_added;
+
+			if (img_rel_bytes_added_loc < fn.fn_start_addr_rel)
+				fn.fn_start_addr_rel += bytes_added;
+
+			for (auto& inst : fn.decoded_insts)
+				if (img_rel_bytes_added_loc <= inst.runtime_address - image_base)
+					inst.runtime_address += bytes_added;
+
+		 }
+	}
 
 	//TODO: FIX UP JUMP TABLE INST
-	std::expected<void, std::string> fix_rip_relative_instructions(std::vector<uint8_t>& text, std::vector<types::obfuscator::func_t>& funcs, const uint64_t image_base, const uint64_t text_base, uint64_t added_bytes_loc, uint64_t added_bytes) {
+	std::expected<void, std::string> fix_rip_relative_instructions(std::vector<uint8_t>& text, std::vector<types::obfuscator::func_t>& funcs, const uint64_t image_base, const uint64_t text_base, uint64_t img_rel_bytes_added_loc, uint64_t bytes_added) {
 		for (auto& fn : funcs) {
 			for (auto& inst : fn.decoded_insts) {
-				bool control_flow_needs_fix_up = helpers::control_flow_needs_fix_up(inst);
+				bool potential_control_flow_fix_up = helpers::potential_control_flow_fix_up(inst);
 				bool has_rip_explicit_operand = helpers::has_rip_explicit_operand(inst);
-				if (!control_flow_needs_fix_up && !has_rip_explicit_operand) //has_rip_explicit check would suffice
+				if (!potential_control_flow_fix_up && !has_rip_explicit_operand) //has_rip_explicit check would suffice
 					continue;
 
-				uint64_t abs_addr;
-				if (!ZYAN_SUCCESS(ZydisCalcAbsoluteAddress(&inst.info, inst.operands, image_base, &abs_addr)))
+				uint64_t dst_addr;
+				if (!ZYAN_SUCCESS(ZydisCalcAbsoluteAddress(&inst.info, inst.operands, inst.runtime_address, &dst_addr)))
 					return std::unexpected(std::format("failed to calculate absolute address of jump at instruction {:#x}", inst.runtime_address));
 
-				uint64_t image_rel_addr = abs_addr - image_base;
-				if (image_rel_addr < added_bytes_loc)
-					continue; //no need for fixing
-
+				uint64_t img_rel_dst_addr = dst_addr - image_base;
 				//TODO: make sure the offset isn't too big to be encoded
-				if (control_flow_needs_fix_up) {
+				if (potential_control_flow_fix_up) {
+					uint64_t img_rel_inst_addr = inst.runtime_address - image_base;
 					auto operand = &inst.operands[0];
+
+					//we can jump backwards or forwards, need to distinguish the min and max 
+					uint64_t max = std::max(img_rel_dst_addr, img_rel_inst_addr);
+					uint64_t min = std::min(img_rel_dst_addr, img_rel_inst_addr);
+
+					if (operand->imm.is_relative) {
+						if (img_rel_bytes_added_loc <= min || img_rel_bytes_added_loc > max)
+							continue;
+					}
+					else {
+						if (img_rel_bytes_added_loc < img_rel_dst_addr)
+							continue;
+					}
+
 					if (operand->type == ZYDIS_OPERAND_TYPE_IMMEDIATE) {
 						if (operand->imm.is_signed)
-							operand->imm.value.s += added_bytes;
+							operand->imm.value.s += bytes_added * (img_rel_dst_addr != max ? -1 : 1);
 						else
-							operand->imm.value.u += added_bytes;
+							operand->imm.value.u += bytes_added; //no need to adjust sign here since adding bytes will never have us changing the value to signed
 					}
 					else if (operand->type == ZYDIS_OPERAND_TYPE_MEMORY) {
-						operand->mem.disp.has_displacement = true;
-						operand->mem.disp.value += added_bytes;
+						operand->mem.disp.has_displacement = true; //I don't see why this wouldn't be already true but setting it again doesn't hurt
+						operand->mem.disp.value += bytes_added * (img_rel_dst_addr != max ? -1 : 1);
 					}
 					else {
 						return std::unexpected(std::format("unhandled behavior encountered: a control flow op needing fix up couldn't be fixed at {:#x}", inst.runtime_address)); //unless we change helpers::control_flow_needs_fix_up, will never reach here
@@ -86,7 +115,7 @@ namespace helpers {
 					for (auto& operand : inst.operands) {
 						if (operand.type == ZYDIS_OPERAND_TYPE_MEMORY && operand.mem.base == ZYDIS_REGISTER_RIP) {
 							operand.mem.disp.has_displacement = true;
-							operand.mem.disp.value += added_bytes;
+							operand.mem.disp.value += bytes_added;
 						}
 					}
 				}
@@ -121,7 +150,7 @@ namespace helpers {
 					return std::unexpected(std::format("unhandled behavior, reencoded instruction at {:#x} is larger than the original instruction", inst.runtime_address));
 
 				uint64_t text_rel_inst_pos = inst.runtime_address - image_base - text_base;
-				auto vector_replace_pos_it = std::next(text.begin(), text_rel_inst_pos);
+				auto vector_replace_pos_it = std::next(text.begin(), text_rel_inst_pos); //TODO: BREAKPOINT HERE
 				std::copy(new_encoded_inst, new_encoded_inst + new_encoded_inst_length, vector_replace_pos_it);
 			}
 		}

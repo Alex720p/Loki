@@ -8,6 +8,7 @@
 #include "helpers.hpp"
 
 
+//note: when inserting stuff, always consider the case that we're inserting to the left of an element
 class Obfuscator {
 private:
 	std::unique_ptr<LIEF::PE::Binary> pe;
