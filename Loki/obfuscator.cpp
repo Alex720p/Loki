@@ -37,7 +37,7 @@ std::expected<void, std::string> Obfuscator::init_fns(const std::filesystem::pat
 		if (fn.fn_start_addr_rel < text_section->virtual_address() || fn.fn_start_addr_rel + fn.fn_size > text_section->virtual_address() + text_section->virtual_size())
 			return std::unexpected("a function in the pdb file lies outside the bound of .text");
 
-		types::obfuscator::func_t obfuscator_fn = { .fn_start_addr_rel = fn.fn_start_addr_rel, .fn_size = fn.fn_size };
+		types::obfuscator::func_t obfuscator_fn = { .fn_start_addr_rel = fn.fn_start_addr_rel, .fn_size = fn.fn_size, .is_entry_point = fn.fn_start_addr_rel == this->pe->optional_header().addressof_entrypoint() };
 		const auto fn_code = text.subspan(fn.fn_start_addr_rel - text_section->virtual_address(), fn.fn_size);
 
 		//decoding and checking that there is no jump table, in which case we skip the whole fn for now
@@ -109,10 +109,14 @@ void Obfuscator::run_passes() {
 
 	text_section->content(*pass_ret); //TODO: UPDATE RUNTIME_ADDRESS IN INSTRUCTIONS
 
+	//updating the entrypoint
+	for (const auto& fn : this->funcs) {
+		if (fn.is_entry_point) {
+			this->pe->optional_header().addressof_entrypoint(fn.fn_start_addr_rel);
+			break;
+		}
+	}
 }
-
-//TODO: can easily speed up this process by more preprocessing
-//TODO: put assumptions
 
 void Obfuscator::build_obfuscated_executable(const std::filesystem::path& out) {
 	LIEF::PE::Builder builder(*this->pe);
