@@ -22,7 +22,7 @@ namespace obfuscator::utils {
 
 std::expected<void, std::string> Obfuscator::init_fns(const std::filesystem::path& executable_path) {
 	if (!this->pe)
-		return std::unexpected("the obfuscator isn't linked to any pe file.");
+		throw std::runtime_error("the obfuscator isn't linked to any pe file.");
 
 	auto text_section = this->pe->get_section(".text");
 	const auto text = text_section->content();
@@ -91,19 +91,21 @@ std::expected<void, std::string> Obfuscator::init_fns(const std::filesystem::pat
 	}
 }
 
-void Obfuscator::init(const std::filesystem::path& executable_path) {
-	this->pe = LIEF::PE::Parser::parse(executable_path.string());
+Obfuscator::Obfuscator(const std::filesystem::path& executable_path) :
+	pe(LIEF::PE::Parser::parse(executable_path.string())),
+	binary_fixer(pe.get())
+{
 	auto fn_init_res = this->init_fns(executable_path);
 	if (!fn_init_res)
 		throw std::runtime_error(std::format("Failed to init functions in obfuscator, error: {}", fn_init_res.error()));
 
+	this->binary_fixer = BinaryFixer(this->pe.get());
 	this->is_funcs_valid = true;
 }
 
-
 void Obfuscator::run_passes() {
 	auto text_section = this->pe->get_section(".text");
-	auto pass_ret = passes::anti_disassembly::e8ff_decoy(text_section->content(), this->pe->imagebase(), text_section->virtual_address(), this->funcs); //should be run later when adding other passes
+	auto pass_ret = passes::anti_disassembly::e8ff_decoy(this->binary_fixer, text_section->content(), this->pe->imagebase(), text_section->virtual_address(), this->funcs, this->outside_fns_rip_jump_stubs); //should be run later when adding other passes
 	if (!pass_ret)
 		throw std::runtime_error(std::format("Failed to run pass. {}", pass_ret.error()));
 
