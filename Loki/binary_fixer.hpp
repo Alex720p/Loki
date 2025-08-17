@@ -11,7 +11,7 @@ private:
 
 private:
 	bool potential_control_flow_fix_up(const ZydisDisassembledInstruction& inst);
-	bool has_rip_explicit_operand(const ZydisDisassembledInstruction& inst);
+	int get_rip_explicit_operand_index(const ZydisDisassembledInstruction& inst); //returns -1 if none found
 	void fix_instruction(std::vector<uint8_t>& text, ZydisDisassembledInstruction& inst, const uint64_t img_rel_bytes_added_loc, const uint64_t bytes_added);
 public:
 	BinaryFixer(LIEF::PE::Binary* pe);
