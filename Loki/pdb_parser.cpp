@@ -18,9 +18,29 @@ static BOOL CALLBACK enum_symbols_callback(PSYMBOL_INFO psym_info, ULONG symbol_
 		ctx->fn_info_vec.push_back(fn_info);
 	}
 	else if (psym_info->Tag == SymTagPublicSymbol || psym_info->Tag == SymTagData) { //SymTagPublicSymbols for imports jump stubs (ex: memcpy...) and SymTagData for control flow guard jumps etc...
+		static const std::array<std::pair<std::string_view, uint64_t pdb_parser::crt_inits_terms::*>, 8> crt_symbol_array = { {
+			{"__xi_a", &pdb_parser::crt_inits_terms::__xi_a},
+			{"__xi_z", &pdb_parser::crt_inits_terms::__xi_z},
+			{"__xc_a", &pdb_parser::crt_inits_terms::__xc_a},
+			{"__xc_z", &pdb_parser::crt_inits_terms::__xc_z},
+			{"__xp_a", &pdb_parser::crt_inits_terms::__xp_a},
+			{"__xp_z", &pdb_parser::crt_inits_terms::__xp_z},
+			{"__xt_a", &pdb_parser::crt_inits_terms::__xt_a},
+			{"__xt_z", &pdb_parser::crt_inits_terms::__xt_z}
+		} };
+
 		uint64_t symbol_addr_without_base = psym_info->Address - DUMMY_BASE;
+		std::string_view symbol_name(psym_info->Name, psym_info->NameLen);
+		for (const auto& [name, member_ptr] : crt_symbol_array) {
+			if (symbol_name == name) {
+				uint64_t symbol_addr_without_base = psym_info->Address - DUMMY_BASE;
+				(ctx->crt).*member_ptr = symbol_addr_without_base;
+				return TRUE;
+			}
+		}
+
 		if (symbol_addr_without_base >= ctx->dot_text_base && symbol_addr_without_base < ctx->dot_text_base + ctx->dot_text_size)
-			ctx->potential_jump_stubs.push_back(psym_info->Address - DUMMY_BASE); //if outside of .text section don't care
+			ctx->potential_jump_stubs.push_back(symbol_addr_without_base); //if outside of .text section don't care
 	}
 
 	return TRUE; //makes the enumeration continue

@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <filesystem>
 #include <expected>
+#include <array>
 
 enum SymTagEnum {
     SymTagNull,
@@ -63,11 +64,23 @@ namespace pdb_parser {
         ULONG fn_size;
     };
 
+    struct crt_inits_terms {
+        uint64_t __xi_a; //C initializers (first)
+        uint64_t __xi_z; //C initializers (last)
+        uint64_t __xc_a; //C++ initializers (first)
+        uint64_t __xc_z; //C++ initializers (last)
+        uint64_t __xp_a; //C pre-terminators (first)
+        uint64_t __xp_z; //C pre-terminators (last)
+        uint64_t __xt_a; //C terminators (first)
+        uint64_t __xt_z; //C terminators (last)
+    };
+
     struct user_ctx {
         std::vector<pdb_parser::fn_info_t> fn_info_vec = {};
         std::vector<uint64_t> potential_jump_stubs = {};
         uint64_t dot_text_base;
         uint64_t dot_text_size;
+        crt_inits_terms crt;
     };
 }
 

@@ -20,6 +20,20 @@ namespace obfuscator::utils {
 }
 
 
+uint64_t Obfuscator::get_fn_entry_addr(const uint64_t img_rel_fn_start_addr, const uint64_t img_rel_start, const uint64_t img_rel_end) {
+	uint64_t section_size = img_rel_end - img_rel_start;
+	auto content = this->pe->get_content_from_virtual_address(img_rel_start, section_size);
+
+	for (size_t i = 0; i < content.size() - i*sizeof(uint64_t); i++) {
+		uint64_t entry = *reinterpret_cast<const uint64_t*>(&content[i * sizeof(uint64_t)]);
+		uint64_t img_rel_entry = entry - pe->imagebase();
+		if (img_rel_fn_start_addr == img_rel_entry)
+			return img_rel_start + i * sizeof(uint64_t);
+	}
+
+	return 0;
+}
+
 std::expected<void, std::string> Obfuscator::init_fns(const std::filesystem::path& executable_path) {
 	if (!this->pe)
 		throw std::runtime_error("the obfuscator isn't linked to any pe file.");
@@ -33,12 +47,24 @@ std::expected<void, std::string> Obfuscator::init_fns(const std::filesystem::pat
 		return std::unexpected(parser_result.error());
 
 	auto user_ctx = *parser_result;
+	const uint64_t start_crt_entries[] = { user_ctx.crt.__xi_a, user_ctx.crt.__xc_a, user_ctx.crt.__xp_a, user_ctx.crt.__xt_a };
+	const uint64_t end_crt_entries[] = { user_ctx.crt.__xi_z, user_ctx.crt.__xc_z, user_ctx.crt.__xp_z, user_ctx.crt.__xt_z };
 	for (const auto& fn : user_ctx.fn_info_vec) {
 		if (fn.fn_start_addr_rel < text_section->virtual_address() || fn.fn_start_addr_rel + fn.fn_size > text_section->virtual_address() + text_section->virtual_size())
 			return std::unexpected("a function in the pdb file lies outside the bound of .text");
 
 		types::obfuscator::func_t obfuscator_fn = { .fn_start_addr_rel = fn.fn_start_addr_rel, .fn_size = fn.fn_size, .is_entry_point = fn.fn_start_addr_rel == this->pe->optional_header().addressof_entrypoint() };
 		const auto fn_code = text.subspan(fn.fn_start_addr_rel - text_section->virtual_address(), fn.fn_size);
+
+		//checking if the function is getting called by crt. Need to check this to update the entries if the fn start addr gets modified
+		uint64_t fn_crt_entry_ptr = 0;
+		for (int i = 0; i < sizeof(start_crt_entries) / sizeof(start_crt_entries[0]); i++) {
+			fn_crt_entry_ptr = this->get_fn_entry_addr(obfuscator_fn.fn_start_addr_rel, start_crt_entries[i], end_crt_entries[i]);
+			if (fn_crt_entry_ptr)
+				break;
+		}
+
+		obfuscator_fn.crt_entry = fn_crt_entry_ptr;
 
 		//decoding and checking that there is no jump table, in which case we skip the whole fn for now
 		uint64_t runtime_address = pe->imagebase() + obfuscator_fn.fn_start_addr_rel;
@@ -52,11 +78,11 @@ std::expected<void, std::string> Obfuscator::init_fns(const std::filesystem::pat
 				/* length:          */ obfuscator_fn.fn_size - offset,
 				/* instruction:     */ &instruction
 			))) {
-				if (obfuscator::utils::does_fn_contain_jump_table(instruction, pe->imagebase())) {
-					obfuscator_fn.has_jump_table = true; //TODO: decode until ret
-					obfuscator_fn.decoded_insts.clear(); //we won't need the list anymore for now. note: in future imp, will try to detect the jump table and its location and do some obfuscation around/ on it
-					break;
-				}
+				if (obfuscator::utils::does_fn_contain_jump_table(instruction, pe->imagebase()))
+					obfuscator_fn.has_jump_table = true;
+
+				if (obfuscator_fn.has_jump_table && instruction.info.mnemonic == ZYDIS_MNEMONIC_RET)
+					break; //what follows should be the jump table (+ some padding)
 				
 				obfuscator_fn.decoded_insts.push_back(instruction);
 				offset += instruction.info.length;
@@ -111,6 +137,7 @@ void Obfuscator::run_passes() {
 
 	text_section->content(*pass_ret); //TODO: UPDATE RUNTIME_ADDRESS IN INSTRUCTIONS
 
+	this->binary_fixer.fix_crt_entries(this->funcs);
 	//updating the entrypoint
 	for (const auto& fn : this->funcs) {
 		if (fn.is_entry_point) {
