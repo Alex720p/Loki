@@ -131,7 +131,7 @@ Obfuscator::Obfuscator(const std::filesystem::path& executable_path) :
 
 void Obfuscator::run_passes() {
 	auto text_section = this->pe->get_section(".text");
-	auto pass_ret = passes::anti_disassembly::e8ff_decoy(this->binary_fixer, text_section->content(), this->pe->imagebase(), text_section->virtual_address(), this->funcs, this->outside_fns_rip_jump_stubs); //should be run later when adding other passes
+	auto pass_ret = passes::anti_disassembly::ebff_decoy(this->binary_fixer, text_section->content(), this->pe->imagebase(), text_section->virtual_address(), this->funcs, this->outside_fns_rip_jump_stubs); //should be run later when adding other passes
 	if (!pass_ret)
 		throw std::runtime_error(std::format("Failed to run pass. {}", pass_ret.error()));
 
