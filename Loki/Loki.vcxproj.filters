@@ -30,14 +30,14 @@
     <ClCompile Include="passes\anti_disassembly.cpp">
       <Filter>Source Files\passes</Filter>
     </ClCompile>
-    <ClCompile Include="misc.cpp">
-      <Filter>Source Files\passes</Filter>
-    </ClCompile>
     <ClCompile Include="helpers.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="binary_fixer.cpp">
       <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="transformations.cpp">
+      <Filter>Source Files\passes</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

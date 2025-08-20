@@ -150,10 +150,6 @@ void BinaryFixer::fix_text(std::vector<uint8_t>& text, std::vector<types::obfusc
 			if (img_rel_bytes_added_loc <= img_rel_inst_addr)
 				inst.runtime_address += bytes_added;
 
-
-			if (inst.runtime_address == 0x140000000 + 0x148e)
-				auto tt = 0;
-
 			this->fix_instruction(text, inst, img_rel_bytes_added_loc, bytes_added);
 		}
 	}
@@ -176,4 +172,14 @@ void BinaryFixer::fix_crt_entries(const std::vector<types::obfuscator::func_t>& 
 
 		this->pe->patch_address(fn.crt_entry, fn.fn_start_addr_rel + this->pe->imagebase());
 	}
+}
+
+bool BinaryFixer::fix_entrypoint_addr(const  std::vector<types::obfuscator::func_t>& funcs) {
+	for (const auto& fn : funcs) {
+		if (fn.is_entry_point) {
+			this->pe->optional_header().addressof_entrypoint(fn.fn_start_addr_rel);
+			return true;
+		}
+	}
+	return false;
 }

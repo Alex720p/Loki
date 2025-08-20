@@ -17,4 +17,5 @@ public:
 	BinaryFixer(LIEF::PE::Binary* pe);
 	void fix_text(std::vector<uint8_t>& text, std::vector<types::obfuscator::func_t>& funcs, std::vector<ZydisDisassembledInstruction>& outside_fns_rip_jump_stubs, const uint64_t img_rel_bytes_added_loc, const uint64_t bytes_added);
 	void fix_crt_entries(const std::vector<types::obfuscator::func_t>& funcs);
+	bool fix_entrypoint_addr(const  std::vector<types::obfuscator::func_t>& funcs);
 };

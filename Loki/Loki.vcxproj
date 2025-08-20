@@ -135,10 +135,10 @@
     <ClCompile Include="binary_fixer.cpp" />
     <ClCompile Include="helpers.cpp" />
     <ClCompile Include="main.cpp" />
-    <ClCompile Include="misc.cpp" />
     <ClCompile Include="obfuscator.cpp" />
     <ClCompile Include="passes\anti_disassembly.cpp" />
     <ClCompile Include="pdb_parser.cpp" />
+    <ClCompile Include="transformations.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="binary_fixer.hpp" />

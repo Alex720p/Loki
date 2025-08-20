@@ -2,7 +2,7 @@
 
 namespace passes::anti_disassembly {
 	//not ideal inserting in a vector, but since the .text section shouldn't be too large and there shouldn't be that many decoy spots it shouldn't be that big of an issue
-	std::expected<std::vector<uint8_t>, std::string> ebff_decoy(BinaryFixer& binary_fixer, const std::span<const uint8_t> text, const uint64_t image_base, const uint64_t text_base, std::vector<types::obfuscator::func_t>& funcs, std::vector<ZydisDisassembledInstruction>& outside_fns_rip_jump_stubs) {
+	std::vector<uint8_t> ebff_decoy(BinaryFixer& binary_fixer, const std::span<const uint8_t> text, const uint64_t image_base, const uint64_t text_base, std::vector<types::obfuscator::func_t>& funcs, std::vector<ZydisDisassembledInstruction>& outside_fns_rip_jump_stubs) {
 		std::vector<uint8_t> new_text(text.begin(), text.end());
 		for (auto& fn : funcs) {
 			uint64_t fn_offset = 0;
@@ -22,11 +22,6 @@ namespace passes::anti_disassembly {
 				}
 			}
 		}
-
-
-		/*
-		new_text.insert(std::next(new_text.begin(), 0x1fb), 0x90);
-		binary_fixer.fix_text(new_text, funcs, outside_fns_rip_jump_stubs, 0x11fb, 1);*/
 		
 		return new_text;
 	}

@@ -11,8 +11,8 @@
 
 //each passes should update the funcs struct accordingly
 namespace passes {
-	namespace misc {
-		std::vector<uint8_t> entrypoint_decoy(const std::span<const uint8_t> text, const uint64_t text_base, std::vector<types::obfuscator::func_t>& funcs);
+	namespace transformations {
+		std::vector<uint8_t> entrypoint_decoy(BinaryFixer& binary_fixer, const std::span<const uint8_t> text, const uint64_t text_base, std::vector<types::obfuscator::func_t>& funcs);
 	}
 	//TODO: move this function to its own file
 	//void fix_rip_relative_addressing
@@ -23,6 +23,6 @@ namespace passes {
 		*/
 
 		//funcs should be sorted by fn rel addresses, the fn will update the fn sizes and rel starting addresses accordingly
-		std::expected<std::vector<uint8_t>, std::string> ebff_decoy(BinaryFixer& binary_fixer, const std::span<const uint8_t> text, const uint64_t image_base, const uint64_t text_base, std::vector<types::obfuscator::func_t>& funcs, std::vector<ZydisDisassembledInstruction>& outside_fns_rip_jump_stubs);
+		std::vector<uint8_t> ebff_decoy(BinaryFixer& binary_fixer, const std::span<const uint8_t> text, const uint64_t image_base, const uint64_t text_base, std::vector<types::obfuscator::func_t>& funcs, std::vector<ZydisDisassembledInstruction>& outside_fns_rip_jump_stubs);
 	}
 }

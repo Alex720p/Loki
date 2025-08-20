@@ -5,7 +5,13 @@ int main() {
 	const std::filesystem::path path = R"(C:\Users\alexa\source\repos\jump_table\x64\Release\jump_table.exe)";
 	Obfuscator obfuscator(path);
 	obfuscator.run_passes();
-	obfuscator.build_obfuscated_executable(R"(C:\Users\alexa\source\repos\jump_table\x64\Release\obf.exe)");
+	obfuscator.build_executable(R"(C:\Users\alexa\source\repos\jump_table\x64\Release\obf.exe)");
+	
+
+	/*const std::filesystem::path path = R"(C:\Users\alexa\source\repos\message_box\x64\Release\message_box.dll)";
+	Obfuscator obfuscator(path);
+	obfuscator.run_passes();
+	obfuscator.build_executable(R"(C:\Users\alexa\source\repos\message_box\x64\Release\message_box_obf.dll)");*/
 
 #if 0
 	//unsigned char inst[] = { 0xE9, 0x72, 0xFE, 0xFF, 0xFF };
