@@ -43,6 +43,7 @@ void BinaryFixer::fix_instruction(std::vector<uint8_t>& text, ZydisDisassembledI
 	if (!potential_control_flow_fix_up && rip_explicit_operand_index == -1) //has_rip_explicit check would suffice
 		return;
 
+	//TODO: think that adding to runtime_addr before the call to this fn can lead to some edge case issues
 	uint64_t dst_addr;
 	if (!ZYAN_SUCCESS(ZydisCalcAbsoluteAddress(&inst.info, &inst.operands[potential_control_flow_fix_up ? 0 : rip_explicit_operand_index], inst.runtime_address, &dst_addr)))
 		throw std::runtime_error(std::format("failed to calculate absolute address of jump at instruction {:#x}", inst.runtime_address));
@@ -60,8 +61,7 @@ void BinaryFixer::fix_instruction(std::vector<uint8_t>& text, ZydisDisassembledI
 		//TODO: check that the added bytes don't cause the .text section to be resized
 
 		//TODO: make sure the offset isn't too big to be encoded
-		if (potential_control_flow_fix_up) {
-			auto operand = &inst.operands[0];
+			auto operand = &inst.operands[potential_control_flow_fix_up ? 0 : rip_explicit_operand_index];
 
 			//we can jump backwards or forwards, need to distinguish the min and max 
 			uint64_t max = std::max(img_rel_dst_addr, img_rel_inst_addr);
@@ -83,14 +83,7 @@ void BinaryFixer::fix_instruction(std::vector<uint8_t>& text, ZydisDisassembledI
 			else {
 				throw std::runtime_error(std::format("unhandled behavior encountered: a control flow op needing fix up couldn't be fixed at {:#x}", inst.runtime_address)); //unless we change helpers::control_flow_needs_fix_up, will never reach here
 			}
-		}
-		else {
-			auto& operand = inst.operands[rip_explicit_operand_index];
-			operand.mem.disp.has_displacement = true; //should already be set to true
-			operand.mem.disp.value += bytes_added;
-		}
 	} else { //not in .text
-
 		if (potential_control_flow_fix_up) {
 			auto operand = &inst.operands[0]; //TODO: CONTINUE HERE AND HANDLE CASE WHERE IN 2ND OPERAND (error thrown in 0x1900 in obf.exe)
 			if (img_rel_bytes_added_loc < img_rel_inst_addr)
@@ -157,6 +150,10 @@ void BinaryFixer::fix_text(std::vector<uint8_t>& text, std::vector<types::obfusc
 			if (img_rel_bytes_added_loc <= img_rel_inst_addr)
 				inst.runtime_address += bytes_added;
 
+
+			if (inst.runtime_address == 0x140000000 + 0x148e)
+				auto tt = 0;
+
 			this->fix_instruction(text, inst, img_rel_bytes_added_loc, bytes_added);
 		}
 	}
@@ -165,6 +162,7 @@ void BinaryFixer::fix_text(std::vector<uint8_t>& text, std::vector<types::obfusc
 		uint64_t img_rel_stub_addr = inst.runtime_address - this->pe->imagebase();
 		if (img_rel_bytes_added_loc <= img_rel_stub_addr)
 			inst.runtime_address += bytes_added;
+
 
 		this->fix_instruction(text, inst, img_rel_bytes_added_loc, bytes_added);
 	}
