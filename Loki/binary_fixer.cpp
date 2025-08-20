@@ -37,63 +37,62 @@ int BinaryFixer::get_rip_explicit_operand_index(const ZydisDisassembledInstructi
 	return -1;
 }
 
-void BinaryFixer::fix_instruction(std::vector<uint8_t>& text, ZydisDisassembledInstruction& inst, const uint64_t img_rel_bytes_added_loc, const uint64_t bytes_added) {
+void BinaryFixer::fix_instruction(std::vector<uint8_t>& text, ZydisDisassembledInstruction& inst, const uint64_t old_img_rel_inst_addr, const uint64_t img_rel_bytes_added_loc, const uint64_t bytes_added) {
 	bool potential_control_flow_fix_up = this->potential_control_flow_fix_up(inst);
 	int rip_explicit_operand_index = this->get_rip_explicit_operand_index(inst);
 	if (!potential_control_flow_fix_up && rip_explicit_operand_index == -1) //has_rip_explicit check would suffice
 		return;
-
-	//TODO: think that adding to runtime_addr before the call to this fn can lead to some edge case issues
+	
 	uint64_t dst_addr;
-	if (!ZYAN_SUCCESS(ZydisCalcAbsoluteAddress(&inst.info, &inst.operands[potential_control_flow_fix_up ? 0 : rip_explicit_operand_index], inst.runtime_address, &dst_addr)))
-		throw std::runtime_error(std::format("failed to calculate absolute address of jump at instruction {:#x}", inst.runtime_address));
+	if (!ZYAN_SUCCESS(ZydisCalcAbsoluteAddress(&inst.info, &inst.operands[potential_control_flow_fix_up ? 0 : rip_explicit_operand_index], old_img_rel_inst_addr + pe->imagebase(), &dst_addr)))
+		throw std::runtime_error(std::format("Failed to calculate absolute address of jump at instruction {:#x}", inst.runtime_address));
 
-	uint64_t img_rel_dst_addr = dst_addr - pe->imagebase();
-	auto section = this->pe->section_from_rva(img_rel_dst_addr);
+	uint64_t old_img_rel_dst_addr = dst_addr - pe->imagebase();
+	auto section = this->pe->section_from_rva(old_img_rel_dst_addr);
 	if (!section)
 		return;
 
-	uint64_t img_rel_inst_addr = inst.runtime_address - pe->imagebase();
-
+	uint64_t new_img_rel_inst_addr = inst.runtime_address - pe->imagebase();
 	//TODO: this is false, in this case need to subtract/add to rip CONTINUE HERE
 	if (!section->name().compare(".text")) {
 
 		//TODO: check that the added bytes don't cause the .text section to be resized
 
 		//TODO: make sure the offset isn't too big to be encoded
-			auto operand = &inst.operands[potential_control_flow_fix_up ? 0 : rip_explicit_operand_index];
+		auto operand = &inst.operands[potential_control_flow_fix_up ? 0 : rip_explicit_operand_index];
 
-			//we can jump backwards or forwards, need to distinguish the min and max 
-			uint64_t max = std::max(img_rel_dst_addr, img_rel_inst_addr);
-			uint64_t min = std::min(img_rel_dst_addr, img_rel_inst_addr);
+		//we can jump backwards or forwards, need to distinguish the min and max 
+		uint64_t max = std::max(old_img_rel_inst_addr, old_img_rel_dst_addr);
+		uint64_t min = std::min(old_img_rel_inst_addr, old_img_rel_dst_addr);
 
-			if (img_rel_bytes_added_loc <= min || img_rel_bytes_added_loc > max)
-				return;
+		if (img_rel_bytes_added_loc <= min || img_rel_bytes_added_loc > max)
+			return;
 
-			if (operand->type == ZYDIS_OPERAND_TYPE_IMMEDIATE) {
-				if (operand->imm.is_signed)
-					operand->imm.value.s += bytes_added * (img_rel_dst_addr != max ? -1 : 1);
-				else
-					operand->imm.value.u += bytes_added; //no need to adjust sign here since adding bytes will never have us changing the value to signed
-			}
-			else if (operand->type == ZYDIS_OPERAND_TYPE_MEMORY) {
-				operand->mem.disp.has_displacement = true; //I don't see why this wouldn't be already true but setting it again doesn't hurt
-				operand->mem.disp.value += bytes_added * (img_rel_dst_addr != max ? -1 : 1);
-			}
-			else {
-				throw std::runtime_error(std::format("unhandled behavior encountered: a control flow op needing fix up couldn't be fixed at {:#x}", inst.runtime_address)); //unless we change helpers::control_flow_needs_fix_up, will never reach here
-			}
+		if (operand->type == ZYDIS_OPERAND_TYPE_IMMEDIATE) {
+			if (operand->imm.is_signed)
+				operand->imm.value.s += bytes_added * (old_img_rel_inst_addr == max ? -1 : 1);
+			else
+				operand->imm.value.u += bytes_added; //no need to adjust sign here since adding bytes will never have us changing the value to signed
+		}
+		else if (operand->type == ZYDIS_OPERAND_TYPE_MEMORY) {
+			operand->mem.disp.has_displacement = true; //I don't see why this wouldn't be already true but setting it again doesn't hurt
+			operand->mem.disp.value += bytes_added * (old_img_rel_inst_addr == max ? -1 : 1);
+		}
+		else {
+			throw std::runtime_error(std::format("unhandled behavior encountered: a control flow op needing fix up couldn't be fixed at {:#x}", inst.runtime_address)); //unless we change helpers::control_flow_needs_fix_up, will never reach here
+		}
+
 	} else { //not in .text
 		if (potential_control_flow_fix_up) {
-			auto operand = &inst.operands[0]; //TODO: CONTINUE HERE AND HANDLE CASE WHERE IN 2ND OPERAND (error thrown in 0x1900 in obf.exe)
-			if (img_rel_bytes_added_loc < img_rel_inst_addr)
+			auto operand = &inst.operands[0];
+			if (img_rel_bytes_added_loc < old_img_rel_inst_addr)
 				operand->mem.disp.value -= bytes_added;
 			else
 				return;
 		}
 		else {
 			auto& operand = inst.operands[rip_explicit_operand_index];
-			if (img_rel_bytes_added_loc < img_rel_inst_addr) {
+			if (img_rel_bytes_added_loc < old_img_rel_inst_addr) {
 				operand.mem.disp.has_displacement = true; //should already be set to true
 				operand.mem.disp.value -= bytes_added;
 			}
@@ -132,52 +131,52 @@ void BinaryFixer::fix_instruction(std::vector<uint8_t>& text, ZydisDisassembledI
 	if (new_encoded_inst_length != inst.info.length)
 		throw std::runtime_error(std::format("unhandled behavior, reencoded instruction at {:#x} is larger than the original instruction", inst.runtime_address));
 
-	uint64_t text_rel_inst_pos = inst.runtime_address - pe->imagebase() - pe->get_section(".text")->virtual_address();
-	auto vector_replace_pos_it = std::next(text.begin(), text_rel_inst_pos);
+	uint64_t new_text_rel_inst_pos = new_img_rel_inst_addr - pe->get_section(".text")->virtual_address();
+	auto vector_replace_pos_it = std::next(text.begin(), new_text_rel_inst_pos);
 	std::copy(new_encoded_inst, new_encoded_inst + new_encoded_inst_length, vector_replace_pos_it);
 }
 
-void BinaryFixer::fix_text(std::vector<uint8_t>& text, std::vector<types::obfuscator::func_t>& funcs, std::vector<ZydisDisassembledInstruction>& outside_fns_rip_jump_stubs, const uint64_t img_rel_bytes_added_loc, const uint64_t bytes_added) {
+void BinaryFixer::fix_text(std::vector<uint8_t>& text, std::vector<types::func_t>& funcs, std::vector<ZydisDisassembledInstruction>& outside_fns_rip_jump_stubs, const uint64_t img_rel_bytes_added_loc, const uint64_t bytes_added) {
 	for (auto& fn : funcs) {
-		if (img_rel_bytes_added_loc >= fn.fn_start_addr_rel && img_rel_bytes_added_loc < fn.fn_start_addr_rel + fn.fn_size)
+		if (img_rel_bytes_added_loc >= fn.img_rel_start_addr && img_rel_bytes_added_loc < fn.img_rel_start_addr + fn.fn_size)
 			fn.fn_size += bytes_added;
 
-		if (img_rel_bytes_added_loc < fn.fn_start_addr_rel)
-			fn.fn_start_addr_rel += bytes_added;
+		if (img_rel_bytes_added_loc < fn.img_rel_start_addr)
+			fn.img_rel_start_addr += bytes_added;
 
 		for (auto& inst : fn.decoded_insts) {
-			uint64_t img_rel_inst_addr = inst.runtime_address - this->pe->imagebase();
-			if (img_rel_bytes_added_loc <= img_rel_inst_addr)
+			uint64_t old_img_rel_inst_addr = inst.runtime_address - this->pe->imagebase();
+			if (img_rel_bytes_added_loc <= old_img_rel_inst_addr)
 				inst.runtime_address += bytes_added;
 
-			this->fix_instruction(text, inst, img_rel_bytes_added_loc, bytes_added);
+			this->fix_instruction(text, inst, old_img_rel_inst_addr, img_rel_bytes_added_loc, bytes_added);
 		}
 	}
 
 	for (auto& inst : outside_fns_rip_jump_stubs) {
-		uint64_t img_rel_stub_addr = inst.runtime_address - this->pe->imagebase();
-		if (img_rel_bytes_added_loc <= img_rel_stub_addr)
+		uint64_t old_img_rel_stub_addr = inst.runtime_address - this->pe->imagebase();
+		if (img_rel_bytes_added_loc <= old_img_rel_stub_addr)
 			inst.runtime_address += bytes_added;
 
 
-		this->fix_instruction(text, inst, img_rel_bytes_added_loc, bytes_added);
+		this->fix_instruction(text, inst, old_img_rel_stub_addr, img_rel_bytes_added_loc, bytes_added);
 	}
 }
 
 
-void BinaryFixer::fix_crt_entries(const std::vector<types::obfuscator::func_t>& funcs) {
+void BinaryFixer::fix_crt_entries(const std::vector<types::func_t>& funcs) {
 	for (const auto& fn : funcs) {
 		if (!fn.crt_entry)
 			continue;
 
-		this->pe->patch_address(fn.crt_entry, fn.fn_start_addr_rel + this->pe->imagebase());
+		this->pe->patch_address(fn.crt_entry, fn.img_rel_start_addr + this->pe->imagebase());
 	}
 }
 
-bool BinaryFixer::fix_entrypoint_addr(const  std::vector<types::obfuscator::func_t>& funcs) {
+bool BinaryFixer::fix_entrypoint_addr(const  std::vector<types::func_t>& funcs) {
 	for (const auto& fn : funcs) {
 		if (fn.is_entry_point) {
-			this->pe->optional_header().addressof_entrypoint(fn.fn_start_addr_rel);
+			this->pe->optional_header().addressof_entrypoint(fn.img_rel_start_addr);
 			return true;
 		}
 	}

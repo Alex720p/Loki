@@ -60,7 +60,7 @@ enum SymTagEnum {
 
 namespace pdb_parser {
     struct fn_info_t {
-        ULONG64 fn_start_addr_rel; //relative to where image is loaded
+        ULONG64 img_rel_start_addr; //relative to where image is loaded
         ULONG fn_size;
     };
 

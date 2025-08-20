@@ -14,7 +14,7 @@ class Obfuscator {
 private:
 	std::unique_ptr<LIEF::PE::Binary> pe;
 	BinaryFixer binary_fixer;
-	std::vector<types::obfuscator::func_t> funcs = {}; //sorted by fn_start_addr_rel from smallest to biggest
+	std::vector<types::func_t> funcs = {}; //sorted by img_rel_start_addr from smallest to biggest
 	std::vector<ZydisDisassembledInstruction> outside_fns_rip_jump_stubs = {}; //not sorted, the runtime address (pe->imagebase() is added in the instructions runtime addr)
 private:
 	void init_fns(const std::filesystem::path& executable_path);

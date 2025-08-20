@@ -50,24 +50,24 @@ void Obfuscator::init_fns(const std::filesystem::path& executable_path) {
 	const uint64_t start_crt_entries[] = { user_ctx.crt.__xi_a, user_ctx.crt.__xc_a, user_ctx.crt.__xp_a, user_ctx.crt.__xt_a };
 	const uint64_t end_crt_entries[] = { user_ctx.crt.__xi_z, user_ctx.crt.__xc_z, user_ctx.crt.__xp_z, user_ctx.crt.__xt_z };
 	for (const auto& fn : user_ctx.fn_info_vec) {
-		if (fn.fn_start_addr_rel < text_section->virtual_address() || fn.fn_start_addr_rel + fn.fn_size > text_section->virtual_address() + text_section->virtual_size())
+		if (fn.img_rel_start_addr < text_section->virtual_address() || fn.img_rel_start_addr + fn.fn_size > text_section->virtual_address() + text_section->virtual_size())
 			throw std::runtime_error("a function in the pdb file lies outside the bound of .text");
 
-		types::obfuscator::func_t obfuscator_fn = { .fn_start_addr_rel = fn.fn_start_addr_rel, .fn_size = fn.fn_size, .is_entry_point = fn.fn_start_addr_rel == this->pe->optional_header().addressof_entrypoint() };
-		const auto fn_code = text.subspan(fn.fn_start_addr_rel - text_section->virtual_address(), fn.fn_size);
+		types::func_t obfuscator_fn = { .img_rel_start_addr = fn.img_rel_start_addr, .fn_size = fn.fn_size, .is_entry_point = fn.img_rel_start_addr == this->pe->optional_header().addressof_entrypoint() };
+		const auto fn_code = text.subspan(fn.img_rel_start_addr - text_section->virtual_address(), fn.fn_size);
 
 		//checking if the function is getting called by crt. Need to check this to update the entries if the fn start addr gets modified
 		uint64_t fn_crt_entry_ptr = 0;
 		for (int i = 0; i < sizeof(start_crt_entries) / sizeof(start_crt_entries[0]); i++) {
-			fn_crt_entry_ptr = this->get_fn_entry_addr(obfuscator_fn.fn_start_addr_rel, start_crt_entries[i], end_crt_entries[i]);
+			fn_crt_entry_ptr = this->get_fn_entry_addr(obfuscator_fn.img_rel_start_addr, start_crt_entries[i], end_crt_entries[i]);
 			if (fn_crt_entry_ptr)
 				break;
 		}
 
 		obfuscator_fn.crt_entry = fn_crt_entry_ptr;
 
-		//decoding and checking that there is no jump table, in which case we skip the whole fn for now
-		uint64_t runtime_address = pe->imagebase() + obfuscator_fn.fn_start_addr_rel;
+		//decoding and checking that there is no jump table, if there is we stop at the first ret instruction and assume the remaining is jump_table data
+		uint64_t runtime_address = pe->imagebase() + obfuscator_fn.img_rel_start_addr;
 		uint64_t offset = 0;
 		while (offset < obfuscator_fn.fn_size) {
 			ZydisDisassembledInstruction instruction;
@@ -87,7 +87,7 @@ void Obfuscator::init_fns(const std::filesystem::path& executable_path) {
 				obfuscator_fn.decoded_insts.push_back(instruction);
 				offset += instruction.info.length;
 			} else {
-				throw std::runtime_error(std::format("Zydis failed to decode an instruction at {:#x} rva", obfuscator_fn.fn_start_addr_rel + offset));
+				throw std::runtime_error(std::format("Zydis failed to decode an instruction at {:#x} rva", obfuscator_fn.img_rel_start_addr + offset));
 			}
 		}
 

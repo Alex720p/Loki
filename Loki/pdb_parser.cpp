@@ -12,7 +12,7 @@ static BOOL CALLBACK enum_symbols_callback(PSYMBOL_INFO psym_info, ULONG symbol_
 
 	if (psym_info->Tag == SymTagFunction) {
 		pdb_parser::fn_info_t fn_info = { 0 };
-		fn_info.fn_start_addr_rel = psym_info->Address - DUMMY_BASE;
+		fn_info.img_rel_start_addr = psym_info->Address - DUMMY_BASE;
 		fn_info.fn_size = psym_info->Size;
 
 		ctx->fn_info_vec.push_back(fn_info);
