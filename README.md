@@ -1,6 +1,6 @@
 # Loki - Obfuscator for x64 Binaries
 
-## Project is a wip
+## Project is a work-in-progress
 
 ## Features:
 
