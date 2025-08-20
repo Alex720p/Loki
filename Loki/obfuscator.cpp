@@ -19,6 +19,34 @@ namespace obfuscator::utils {
 	}
 }
 
+bool Obfuscator::potential_control_flow_fix_up(const ZydisDisassembledInstruction& inst) {
+	auto category = inst.info.meta.category;
+	if (category != ZYDIS_CATEGORY_COND_BR && category != ZYDIS_CATEGORY_UNCOND_BR && category != ZYDIS_CATEGORY_CALL)
+		return false;
+
+	auto operand = inst.operands[0];
+	if (operand.type == ZYDIS_OPERAND_TYPE_IMMEDIATE)
+		return true;
+
+	if (operand.type == ZYDIS_OPERAND_TYPE_MEMORY)
+		return operand.mem.base == ZYDIS_REGISTER_RIP;
+
+	return false;
+}
+
+int8_t Obfuscator::get_rip_explicit_operand_index(const ZydisDisassembledInstruction& inst) {
+	for (int i = 0; i < inst.info.operand_count_visible; i++) {
+		const auto& operand = inst.operands[i];
+		if (operand.type == ZYDIS_OPERAND_TYPE_REGISTER && operand.reg.value == ZYDIS_REGISTER_RIP)
+			return i;
+
+		if (operand.type == ZYDIS_OPERAND_TYPE_MEMORY && operand.mem.base == ZYDIS_REGISTER_RIP)
+			return i;
+	}
+
+	return EXPLICIT_RIP_OPERAND_NO_FIX_INDEX;
+}
+
 
 uint64_t Obfuscator::get_fn_entry_addr(const uint64_t img_rel_fn_start_addr, const uint64_t img_rel_start, const uint64_t img_rel_end) {
 	uint64_t section_size = img_rel_end - img_rel_start;
@@ -84,7 +112,23 @@ void Obfuscator::init_fns(const std::filesystem::path& executable_path) {
 				if (obfuscator_fn.has_jump_table && instruction.info.mnemonic == ZYDIS_MNEMONIC_RET)
 					break; //what follows should be the jump table (+ some padding)
 				
-				obfuscator_fn.decoded_insts.push_back(instruction);
+				types::instruction_wrapper_t inst = { .inst = instruction };
+				inst.control_flow_might_need_fix = this->potential_control_flow_fix_up(instruction);
+
+				inst.explicit_rip_operand_index = this->get_rip_explicit_operand_index(instruction);
+				if (inst.needs_explicit_operand_fix()) {
+					uint64_t dst_addr;
+					if (!ZYAN_SUCCESS(ZydisCalcAbsoluteAddress(&instruction.info, &instruction.operands[inst.explicit_rip_operand_index], instruction.runtime_address, &dst_addr)))
+						throw std::runtime_error(std::format("Failed to calculate absolute address of jump at instruction {:#x}", instruction.runtime_address - this->pe->imagebase()));
+
+					uint64_t img_rel_dst_addr = dst_addr - this->pe->imagebase();
+					auto section = this->pe->section_from_rva(img_rel_dst_addr);
+					if (section) //if no section found, could be a lea reg, [image_base_addr] for ex
+						inst.references_outside_of_dot_text = section->name().compare(".text");
+				}
+
+
+				obfuscator_fn.decoded_insts_wrappers.push_back(inst);
 				offset += instruction.info.length;
 			} else {
 				throw std::runtime_error(std::format("Zydis failed to decode an instruction at {:#x} rva", obfuscator_fn.img_rel_start_addr + offset));
@@ -108,12 +152,13 @@ void Obfuscator::init_fns(const std::filesystem::path& executable_path) {
 			/* instruction:     */ &instruction))))
 			continue;
 
-		if (!helpers::is_inst_control_flow_op(instruction))
+		if (!this->potential_control_flow_fix_up(instruction))
 			continue;
 
 		auto operand = instruction.operands[0];
+		//the check belows filters out the inop from cfg that are jmp rax
 		if (instruction.info.mnemonic == ZYDIS_MNEMONIC_JMP && operand.mem.base == ZYDIS_REGISTER_RIP) //there's a risk that this might be vs compiler specific, might need to implement something more flexible
-			this->outside_fns_rip_jump_stubs.push_back(instruction); //save the whole instruction so that we can rebuild them later with Zydis's encoder
+			this->outside_fns_rip_jump_stubs.push_back({ .inst = instruction, .control_flow_might_need_fix = true, .references_outside_of_dot_text = true }); //save the whole instruction so that we can rebuild them later with Zydis's encoder
 	}
 }
 

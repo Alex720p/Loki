@@ -23,6 +23,6 @@ namespace passes {
 		*/
 
 		//funcs should be sorted by fn rel addresses, the fn will update the fn sizes and rel starting addresses accordingly
-		std::vector<uint8_t> ebff_decoy(BinaryFixer& binary_fixer, const std::span<const uint8_t> text, const uint64_t image_base, const uint64_t text_base, std::vector<types::func_t>& funcs, std::vector<ZydisDisassembledInstruction>& outside_fns_rip_jump_stubs);
+		std::vector<uint8_t> ebff_decoy(BinaryFixer& binary_fixer, const std::span<const uint8_t> text, const uint64_t image_base, const uint64_t text_base, std::vector<types::func_t>& funcs, std::vector<types::instruction_wrapper_t>& outside_fns_rip_jump_stubs);
 	}
 }

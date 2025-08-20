@@ -2,7 +2,7 @@
 
 namespace passes::anti_disassembly {
 	//not ideal inserting in a vector, but since the .text section shouldn't be too large and there shouldn't be that many decoy spots it shouldn't be that big of an issue
-	std::vector<uint8_t> ebff_decoy(BinaryFixer& binary_fixer, const std::span<const uint8_t> text, const uint64_t image_base, const uint64_t text_base, std::vector<types::func_t>& funcs, std::vector<ZydisDisassembledInstruction>& outside_fns_rip_jump_stubs) {
+	std::vector<uint8_t> ebff_decoy(BinaryFixer& binary_fixer, const std::span<const uint8_t> text, const uint64_t image_base, const uint64_t text_base, std::vector<types::func_t>& funcs, std::vector<types::instruction_wrapper_t>& outside_fns_rip_jump_stubs) {
 		std::vector<uint8_t> new_text(text.begin(), text.end());
 		/*for (auto& fn : funcs) {
 			uint64_t fn_start_addr_text_rel = fn.img_rel_start_addr - text_base;

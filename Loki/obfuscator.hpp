@@ -15,8 +15,10 @@ private:
 	std::unique_ptr<LIEF::PE::Binary> pe;
 	BinaryFixer binary_fixer;
 	std::vector<types::func_t> funcs = {}; //sorted by img_rel_start_addr from smallest to biggest
-	std::vector<ZydisDisassembledInstruction> outside_fns_rip_jump_stubs = {}; //not sorted, the runtime address (pe->imagebase() is added in the instructions runtime addr)
+	std::vector<types::instruction_wrapper_t> outside_fns_rip_jump_stubs = {}; //not sorted, the runtime address (pe->imagebase() is added in the instructions runtime addr)
 private:
+	bool potential_control_flow_fix_up(const ZydisDisassembledInstruction& inst);
+	int8_t get_rip_explicit_operand_index(const ZydisDisassembledInstruction& inst);
 	void init_fns(const std::filesystem::path& executable_path);
 	uint64_t get_fn_entry_addr(const uint64_t img_rel_fn_start_addr, const uint64_t img_rel_start, const uint64_t img_rel_end);
 public:
