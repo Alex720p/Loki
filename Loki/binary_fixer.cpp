@@ -8,8 +8,6 @@ BinaryFixer::BinaryFixer(LIEF::PE::Binary* pe) {
 	this->pe = pe;
 }
 
-
-
 void BinaryFixer::fix_instruction(std::vector<uint8_t>& text, types::instruction_wrapper_t& inst_wrapper, const uint64_t old_img_rel_inst_addr, const uint64_t img_rel_bytes_added_loc, const uint64_t bytes_added) {
 	if (!inst_wrapper.control_flow_might_need_fix && !inst_wrapper.needs_explicit_operand_fix())
 		return;
@@ -53,7 +51,7 @@ void BinaryFixer::fix_instruction(std::vector<uint8_t>& text, types::instruction
 		if (operand.type != ZYDIS_OPERAND_TYPE_MEMORY) //I'm pretty sure this will never happen
 			throw std::runtime_error(std::format("unhandled behavior encountered: a control flow op leading outside of .text doesn't have a supported operand type be fixed at {:#x}", old_img_rel_inst_addr)); //unless we change helpers::control_flow_needs_fix_up, will never reach here
 
-		if (img_rel_bytes_added_loc < old_img_rel_inst_addr)
+		if (img_rel_bytes_added_loc <= old_img_rel_inst_addr)
 			operand.mem.disp.value -= bytes_added;
 	}
 
@@ -117,7 +115,6 @@ void BinaryFixer::fix_text(std::vector<uint8_t>& text, std::vector<types::func_t
 	}
 }
 
-
 void BinaryFixer::fix_crt_entries(const std::vector<types::func_t>& funcs) {
 	for (const auto& fn : funcs) {
 		if (!fn.crt_entry)
@@ -135,4 +132,29 @@ bool BinaryFixer::fix_entrypoint_addr(const  std::vector<types::func_t>& funcs) 
 		}
 	}
 	return false;
+}
+
+void BinaryFixer::handle_text_section_resize(std::vector<uint8_t>& text, std::vector<types::func_t>& funcs, std::vector<types::instruction_wrapper_t>& outside_fns_rip_jump_stubs, const uint64_t old_virtual_text_size, const uint64_t new_virtual_text_size) {
+	auto section_alignment = this->pe->optional_header().file_alignment();
+	uint64_t old_size_mapped = ((old_virtual_text_size + (section_alignment - 1)) / section_alignment) + 1; //rounding up to a multiple of 0x1000
+	uint64_t new_size_mapped = ((new_virtual_text_size + (section_alignment - 1)) / section_alignment) + 1;
+	if (old_size_mapped == new_size_mapped)
+		return; //no changes to be made
+
+	uint64_t diff_section_size = new_size_mapped - old_size_mapped;
+	for (auto& fn : funcs) {
+		for (auto& inst_wrapper : fn.decoded_insts_wrappers) {
+			if (!inst_wrapper.references_outside_of_dot_text)
+				continue;
+
+			this->fix_instruction(text, inst_wrapper, inst_wrapper.inst.runtime_address - pe->imagebase(), this->pe->get_section(".text")->virtual_address() + new_virtual_text_size, diff_section_size);
+		}
+	}
+
+	for (auto& inst_wrapper : outside_fns_rip_jump_stubs) {
+		if (!inst_wrapper.references_outside_of_dot_text)
+			continue;
+
+		this->fix_instruction(text, inst_wrapper, inst_wrapper.inst.runtime_address - pe->imagebase(), this->pe->get_section(".text")->virtual_address() + new_virtual_text_size, diff_section_size);
+	}
 }

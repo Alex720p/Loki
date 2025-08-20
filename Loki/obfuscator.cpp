@@ -1,22 +1,21 @@
 #include "obfuscator.hpp"
 
-namespace obfuscator::utils {
-	bool does_fn_contain_jump_table(const ZydisDisassembledInstruction& inst, const uint64_t image_base) { //for now will do the simple heuristic of finding if the program does lea <reg>, [image base addr]. will be some false positives though
-		if (inst.info.mnemonic != ZYDIS_MNEMONIC_LEA)
-			return false;
 
-		if (!inst.operands)
-			return false;
+bool Obfuscator::does_fn_contain_jump_table(const ZydisDisassembledInstruction& inst, const uint64_t image_base) { //for now will do the simple heuristic of finding if the program does lea <reg>, [image base addr]. will be some false positives though
+	if (inst.info.mnemonic != ZYDIS_MNEMONIC_LEA)
+		return false;
 
-		if (inst.operands[1].visibility != ZYDIS_OPERAND_VISIBILITY_EXPLICIT || inst.operands[2].visibility != ZYDIS_OPERAND_VISIBILITY_INVALID)
-			return false;
+	if (!inst.operands)
+		return false;
 
-		uint64_t lea_addr;
-		if (!ZYAN_SUCCESS(ZydisCalcAbsoluteAddress(&inst.info, &inst.operands[1], inst.runtime_address, &lea_addr)))
-			return false; // if we're here, means I missed something in the checks above and this isn't the instruction we're looking for anyways
+	if (inst.operands[1].visibility != ZYDIS_OPERAND_VISIBILITY_EXPLICIT || inst.operands[2].visibility != ZYDIS_OPERAND_VISIBILITY_INVALID)
+		return false;
 
-		return lea_addr == image_base;
-	}
+	uint64_t lea_addr;
+	if (!ZYAN_SUCCESS(ZydisCalcAbsoluteAddress(&inst.info, &inst.operands[1], inst.runtime_address, &lea_addr)))
+		return false; // if we're here, means I missed something in the checks above and this isn't the instruction we're looking for anyways
+
+	return lea_addr == image_base;
 }
 
 bool Obfuscator::potential_control_flow_fix_up(const ZydisDisassembledInstruction& inst) {
@@ -106,7 +105,7 @@ void Obfuscator::init_fns(const std::filesystem::path& executable_path) {
 				/* length:          */ obfuscator_fn.fn_size - offset,
 				/* instruction:     */ &instruction
 			))) {
-				if (obfuscator::utils::does_fn_contain_jump_table(instruction, pe->imagebase()))
+				if (this->does_fn_contain_jump_table(instruction, pe->imagebase()))
 					obfuscator_fn.has_jump_table = true;
 
 				if (obfuscator_fn.has_jump_table && instruction.info.mnemonic == ZYDIS_MNEMONIC_RET)
@@ -172,7 +171,11 @@ Obfuscator::Obfuscator(const std::filesystem::path& executable_path) :
 
 void Obfuscator::run_passes() {
 	auto text_section = this->pe->get_section(".text");
+	auto tt = text_section->content();
 	auto after_pass_text = passes::anti_disassembly::ebff_decoy(this->binary_fixer, text_section->content(), this->pe->imagebase(), text_section->virtual_address(), this->funcs, this->outside_fns_rip_jump_stubs); //should be run later when adding other passes
+	this->binary_fixer.handle_text_section_resize(after_pass_text, this->funcs, this->outside_fns_rip_jump_stubs, text_section->virtual_size(), after_pass_text.size());
+	//TODO: update raw size with FileAlignment
+	text_section->virtual_size(after_pass_text.size());
 	text_section->content(after_pass_text);
 
 	this->binary_fixer.fix_crt_entries(this->funcs);
