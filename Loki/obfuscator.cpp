@@ -171,16 +171,21 @@ Obfuscator::Obfuscator(const std::filesystem::path& executable_path) :
 
 void Obfuscator::run_passes() {
 	auto text_section = this->pe->get_section(".text");
-	auto tt = text_section->content();
 	auto after_pass_text = passes::anti_disassembly::ebff_decoy(this->binary_fixer, text_section->content(), this->pe->imagebase(), text_section->virtual_address(), this->funcs, this->outside_fns_rip_jump_stubs); //should be run later when adding other passes
-	this->binary_fixer.handle_text_section_resize(after_pass_text, this->funcs, this->outside_fns_rip_jump_stubs, text_section->virtual_size(), after_pass_text.size());
-	//TODO: update raw size with FileAlignment
+	
+	//updating back the text content to pe + adjusting the section sizes in header
+	auto file_alignment = this->pe->optional_header().file_alignment();
+	uint64_t new_text_raw_size = (((after_pass_text.size() + (file_alignment - 1)) / file_alignment) + 1) * file_alignment;
+	this->binary_fixer.handle_text_section_resize(after_pass_text, this->funcs, this->outside_fns_rip_jump_stubs, text_section->virtual_size(), after_pass_text.size(), text_section->sizeof_raw_data(), new_text_raw_size);
+	text_section->sizeof_raw_data(new_text_raw_size);
 	text_section->virtual_size(after_pass_text.size());
 	text_section->content(after_pass_text);
 
 	this->binary_fixer.fix_crt_entries(this->funcs);
 	if (!this->binary_fixer.fix_entrypoint_addr(this->funcs))
 		throw std::runtime_error("Failed to update entrypoint function, no such function found.");
+
+	//TODO: fix directories addresses in handle_text_section_resize
 	
 }
 

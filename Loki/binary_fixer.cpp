@@ -134,14 +134,29 @@ bool BinaryFixer::fix_entrypoint_addr(const  std::vector<types::func_t>& funcs) 
 	return false;
 }
 
-void BinaryFixer::handle_text_section_resize(std::vector<uint8_t>& text, std::vector<types::func_t>& funcs, std::vector<types::instruction_wrapper_t>& outside_fns_rip_jump_stubs, const uint64_t old_virtual_text_size, const uint64_t new_virtual_text_size) {
+void BinaryFixer::handle_text_section_resize(std::vector<uint8_t>& text, std::vector<types::func_t>& funcs, std::vector<types::instruction_wrapper_t>& outside_fns_rip_jump_stubs, const uint64_t old_virtual_text_size, const uint64_t new_virtual_text_size, const uint64_t old_raw_text_size, const uint64_t new_raw_text_size) {
 	auto section_alignment = this->pe->optional_header().file_alignment();
-	uint64_t old_size_mapped = ((old_virtual_text_size + (section_alignment - 1)) / section_alignment) + 1; //rounding up to a multiple of 0x1000
-	uint64_t new_size_mapped = ((new_virtual_text_size + (section_alignment - 1)) / section_alignment) + 1;
-	if (old_size_mapped == new_size_mapped)
+	uint64_t old_size_mapped_mult = (((old_virtual_text_size + (section_alignment - 1)) / section_alignment) + 1); 
+	uint64_t new_size_mapped_mult = (((new_virtual_text_size + (section_alignment - 1)) / section_alignment) + 1);
+	if (old_size_mapped_mult == new_size_mapped_mult)
 		return; //no changes to be made
 
-	uint64_t diff_section_size = new_size_mapped - old_size_mapped;
+	uint64_t diff_section_size = (new_size_mapped_mult - old_size_mapped_mult) * section_alignment;
+	const auto text_rva = this->pe->get_section(".text")->virtual_address();
+	const auto text_raw_addr = this->pe->get_section(".text")->pointerto_raw_data();
+	for (auto& section : this->pe->sections()) {
+		const auto section_virt_addr = section.virtual_address();
+		const auto section_raw_addr = section.pointerto_raw_data();
+		if (section_virt_addr == text_rva)
+			continue;
+
+		if (text_rva < section_virt_addr)
+			section.virtual_address(section_virt_addr + diff_section_size);
+
+		if (text_raw_addr < section_raw_addr)
+			section.pointerto_raw_data(section_raw_addr + (new_raw_text_size - old_raw_text_size));
+	}
+
 	for (auto& fn : funcs) {
 		for (auto& inst_wrapper : fn.decoded_insts_wrappers) {
 			if (!inst_wrapper.references_outside_of_dot_text)
