@@ -171,20 +171,32 @@ Obfuscator::Obfuscator(const std::filesystem::path& executable_path) :
 
 void Obfuscator::run_passes() {
 	auto text_section = this->pe->get_section(".text");
+	auto text_section_rva = text_section->virtual_address();
 	auto after_pass_text = passes::anti_disassembly::ebff_decoy(this->binary_fixer, text_section->content(), this->pe->imagebase(), text_section->virtual_address(), this->funcs, this->outside_fns_rip_jump_stubs); //should be run later when adding other passes
 	
-	//updating back the text content to pe + adjusting the section sizes in header
-	auto file_alignment = this->pe->optional_header().file_alignment();
-	uint64_t new_text_raw_size = (((after_pass_text.size() + (file_alignment - 1)) / file_alignment) + 1) * file_alignment;
-	this->binary_fixer.handle_text_section_resize(after_pass_text, this->funcs, this->outside_fns_rip_jump_stubs, text_section->virtual_size(), after_pass_text.size(), text_section->sizeof_raw_data(), new_text_raw_size);
-	text_section->sizeof_raw_data(new_text_raw_size);
-	text_section->virtual_size(after_pass_text.size());
-	text_section->content(after_pass_text);
+	//setting up the new code section + erasing the old one
+	LIEF::PE::Section new_exec_sec;
+	new_exec_sec.name(".loki");
+	new_exec_sec.characteristics(text_section->characteristics());
+	new_exec_sec.content(after_pass_text);
+	LIEF::PE::Section* new_exec_sec_ret = this->pe->add_section(new_exec_sec);
+	if (!new_exec_sec_ret)
+		throw std::runtime_error("LIEF returned a nullprt when trying to add the new code section.");
+
+	//this->pe->remove_section(text_section->name(), true);
+
+	auto new_section_rva = new_exec_sec_ret->virtual_address();
+	auto diff_rva = new_section_rva - text_section_rva;
+
+	this->binary_fixer.fix_text(after_pass_text, this->funcs, this->outside_fns_rip_jump_stubs, new_section_rva, text_section_rva - 1, diff_rva);
+	new_exec_sec_ret->content(after_pass_text);
 
 	this->binary_fixer.fix_crt_entries(this->funcs);
 	if (!this->binary_fixer.fix_entrypoint_addr(this->funcs))
 		throw std::runtime_error("Failed to update entrypoint function, no such function found.");
 
+
+	this->pe->optional_header().baseof_code(new_section_rva);
 	//TODO: fix directories addresses in handle_text_section_resize
 	
 }

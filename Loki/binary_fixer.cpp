@@ -8,7 +8,7 @@ BinaryFixer::BinaryFixer(LIEF::PE::Binary* pe) {
 	this->pe = pe;
 }
 
-void BinaryFixer::fix_instruction(std::vector<uint8_t>& text, types::instruction_wrapper_t& inst_wrapper, const uint64_t old_img_rel_inst_addr, const uint64_t img_rel_bytes_added_loc, const uint64_t bytes_added) {
+void BinaryFixer::fix_instruction(std::vector<uint8_t>& code, types::instruction_wrapper_t& inst_wrapper, const uint64_t img_rel_section_base, const uint64_t old_img_rel_inst_addr, const uint64_t img_rel_bytes_added_loc, const uint64_t bytes_added) {
 	if (!inst_wrapper.control_flow_might_need_fix && !inst_wrapper.needs_explicit_operand_fix())
 		return;
 	
@@ -26,7 +26,7 @@ void BinaryFixer::fix_instruction(std::vector<uint8_t>& text, types::instruction
 
 		//TODO: make sure the offset isn't too big to be encoded
 
-		//we can jump backwards or forwards, need to distinguish the min and max 
+		//we can jump backwards or forwards, taking min and max lets ur merge the logic for both
 		uint64_t max = std::max(old_img_rel_inst_addr, old_img_rel_dst_addr);
 		uint64_t min = std::min(old_img_rel_inst_addr, old_img_rel_dst_addr);
 
@@ -50,6 +50,9 @@ void BinaryFixer::fix_instruction(std::vector<uint8_t>& text, types::instruction
 	} else { //not in .text
 		if (operand.type != ZYDIS_OPERAND_TYPE_MEMORY) //I'm pretty sure this will never happen
 			throw std::runtime_error(std::format("unhandled behavior encountered: a control flow op leading outside of .text doesn't have a supported operand type be fixed at {:#x}", old_img_rel_inst_addr)); //unless we change helpers::control_flow_needs_fix_up, will never reach here
+
+		if (new_img_rel_inst_addr == 0x96cf)
+			auto tt = 0;
 
 		if (img_rel_bytes_added_loc <= old_img_rel_inst_addr)
 			operand.mem.disp.value -= bytes_added;
@@ -83,17 +86,17 @@ void BinaryFixer::fix_instruction(std::vector<uint8_t>& text, types::instruction
 	if (new_encoded_inst_length != inst_wrapper.inst.info.length)
 		throw std::runtime_error(std::format("unhandled behavior, reencoded instruction at {:#x} is larger than the original instruction", old_img_rel_inst_addr));
 
-	uint64_t new_text_rel_inst_pos = new_img_rel_inst_addr - pe->get_section(".text")->virtual_address();
-	auto vector_replace_pos_it = std::next(text.begin(), new_text_rel_inst_pos);
+	uint64_t new_text_rel_inst_pos = new_img_rel_inst_addr - img_rel_section_base;
+	auto vector_replace_pos_it = std::next(code.begin(), new_text_rel_inst_pos);
 	std::copy(new_encoded_inst, new_encoded_inst + new_encoded_inst_length, vector_replace_pos_it);
 }
 
-void BinaryFixer::fix_text(std::vector<uint8_t>& text, std::vector<types::func_t>& funcs, std::vector<types::instruction_wrapper_t>& outside_fns_rip_jump_stubs, const uint64_t img_rel_bytes_added_loc, const uint64_t bytes_added) {
+void BinaryFixer::fix_text(std::vector<uint8_t>& text, std::vector<types::func_t>& funcs, std::vector<types::instruction_wrapper_t>& outside_fns_rip_jump_stubs, const uint64_t img_rel_section_base, const uint64_t img_rel_bytes_added_loc, const uint64_t bytes_added) {
 	for (auto& fn : funcs) {
 		if (img_rel_bytes_added_loc >= fn.img_rel_start_addr && img_rel_bytes_added_loc < fn.img_rel_start_addr + fn.fn_size)
 			fn.fn_size += bytes_added;
 
-		if (img_rel_bytes_added_loc < fn.img_rel_start_addr)
+		if (img_rel_bytes_added_loc <= fn.img_rel_start_addr)
 			fn.img_rel_start_addr += bytes_added;
 
 		for (auto& inst_wrapper : fn.decoded_insts_wrappers) {
@@ -101,7 +104,7 @@ void BinaryFixer::fix_text(std::vector<uint8_t>& text, std::vector<types::func_t
 			if (img_rel_bytes_added_loc <= old_img_rel_inst_addr)
 				inst_wrapper.inst.runtime_address += bytes_added;
 
-			this->fix_instruction(text, inst_wrapper, old_img_rel_inst_addr, img_rel_bytes_added_loc, bytes_added);
+			this->fix_instruction(text, inst_wrapper, img_rel_section_base, old_img_rel_inst_addr, img_rel_bytes_added_loc, bytes_added);
 		}
 	}
 
@@ -111,7 +114,7 @@ void BinaryFixer::fix_text(std::vector<uint8_t>& text, std::vector<types::func_t
 			inst_wrapper.inst.runtime_address += bytes_added;
 
 
-		this->fix_instruction(text, inst_wrapper, old_img_rel_stub_addr, img_rel_bytes_added_loc, bytes_added);
+		this->fix_instruction(text, inst_wrapper, img_rel_section_base, old_img_rel_stub_addr, img_rel_bytes_added_loc, bytes_added);
 	}
 }
 
@@ -132,44 +135,4 @@ bool BinaryFixer::fix_entrypoint_addr(const  std::vector<types::func_t>& funcs) 
 		}
 	}
 	return false;
-}
-
-void BinaryFixer::handle_text_section_resize(std::vector<uint8_t>& text, std::vector<types::func_t>& funcs, std::vector<types::instruction_wrapper_t>& outside_fns_rip_jump_stubs, const uint64_t old_virtual_text_size, const uint64_t new_virtual_text_size, const uint64_t old_raw_text_size, const uint64_t new_raw_text_size) {
-	auto section_alignment = this->pe->optional_header().file_alignment();
-	uint64_t old_size_mapped_mult = (((old_virtual_text_size + (section_alignment - 1)) / section_alignment) + 1); 
-	uint64_t new_size_mapped_mult = (((new_virtual_text_size + (section_alignment - 1)) / section_alignment) + 1);
-	if (old_size_mapped_mult == new_size_mapped_mult)
-		return; //no changes to be made
-
-	uint64_t diff_section_size = (new_size_mapped_mult - old_size_mapped_mult) * section_alignment;
-	const auto text_rva = this->pe->get_section(".text")->virtual_address();
-	const auto text_raw_addr = this->pe->get_section(".text")->pointerto_raw_data();
-	for (auto& section : this->pe->sections()) {
-		const auto section_virt_addr = section.virtual_address();
-		const auto section_raw_addr = section.pointerto_raw_data();
-		if (section_virt_addr == text_rva)
-			continue;
-
-		if (text_rva < section_virt_addr)
-			section.virtual_address(section_virt_addr + diff_section_size);
-
-		if (text_raw_addr < section_raw_addr)
-			section.pointerto_raw_data(section_raw_addr + (new_raw_text_size - old_raw_text_size));
-	}
-
-	for (auto& fn : funcs) {
-		for (auto& inst_wrapper : fn.decoded_insts_wrappers) {
-			if (!inst_wrapper.references_outside_of_dot_text)
-				continue;
-
-			this->fix_instruction(text, inst_wrapper, inst_wrapper.inst.runtime_address - pe->imagebase(), this->pe->get_section(".text")->virtual_address() + new_virtual_text_size, diff_section_size);
-		}
-	}
-
-	for (auto& inst_wrapper : outside_fns_rip_jump_stubs) {
-		if (!inst_wrapper.references_outside_of_dot_text)
-			continue;
-
-		this->fix_instruction(text, inst_wrapper, inst_wrapper.inst.runtime_address - pe->imagebase(), this->pe->get_section(".text")->virtual_address() + new_virtual_text_size, diff_section_size);
-	}
 }
